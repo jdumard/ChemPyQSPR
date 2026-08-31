@@ -12,7 +12,6 @@ venv/
 
 # ---- Generated Data (regenerate by running the pipeline) ----
 data/processed/
-data/raw/molecule_features_flashpoint.csv
 
 # ---- Trained Models (regenerate with train_model_reduced.py) ----
 models/*.pkl
