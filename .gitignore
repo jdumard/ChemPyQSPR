@@ -1,0 +1,32 @@
+﻿# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ---- Virtual Environment ----
+venv/
+.venv/
+
+# ---- Generated Data (regenerate by running the pipeline) ----
+data/processed/
+data/raw/molecule_features_flashpoint.csv
+
+# ---- Trained Models (regenerate with train_model_reduced.py) ----
+models/*.pkl
+
+# ---- IDE ----
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+
+# ---- Antigravity / Gemini agent state ----
+.agents/
+.gemini/

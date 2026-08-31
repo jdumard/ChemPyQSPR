@@ -1,0 +1,14 @@
+# ---- Core Pipeline ----
+joblib>=1.5
+matplotlib>=3.11
+numpy>=2.5
+pandas>=3.0
+rdkit>=2026.3
+requests>=2.34
+scikit-learn>=1.9
+scipy>=1.18
+seaborn>=0.13
+xgboost>=3.3
+
+# ---- Analysis (SHAP feature importance) ----
+shap>=0.46
