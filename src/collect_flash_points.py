@@ -25,6 +25,8 @@ from rdkit import Chem
 # ----------------------------------------------------------------------
 OUTPUT_DIR   = os.path.join("data", "processed")
 OUTPUT_CSV   = os.path.join(OUTPUT_DIR, "flash_point_database.csv")
+RECORDS_CSV  = os.path.join(OUTPUT_DIR, "flash_point_records_pre_aggregation.csv")
+
 RAW_DATA_DIR = os.path.join("data", "raw")
 RAW_CSV      = os.path.join(RAW_DATA_DIR, "molecule_features_flashpoint.csv")
 DATA_URL     = "https://raw.githubusercontent.com/cheminfo/molecule-features/main/data/flashpoint/data.csv"
@@ -132,7 +134,7 @@ def get_molecule_features_records() -> list[dict]:
     df = df[(df["flash_point_C"] >= -150.0) & (df["flash_point_C"] <= 500.0)]
 
     records = []
-    for _, row in df.iterrows():
+    for row_index, row in df.iterrows():
         smi = str(row.get("smiles", "")).strip()
         if not smi:
             continue
@@ -144,10 +146,19 @@ def get_molecule_features_records() -> list[dict]:
         can_smi = Chem.MolToSmiles(mol, canonical=True)
         name = str(row.get("compound", "")).strip() if pd.notna(row.get("compound")) else f"Compound_{can_smi}"
 
+
+        source_reference = row.get("source")
+
         records.append({
             "name": name,
             "smiles": can_smi,
-            "flash_point": float(row["flash_point_C"])
+            "flash_point": float(row["flash_point_C"]),
+            "source_dataset": "CHEMINFO",
+            "source_record_id": f"row_{row_index}",
+            "source_reference": (
+                str(source_reference)
+                if pd.notna(source_reference)
+                else None)
         })
 
     log.info("[MoleculeFeatures] Extracted %d valid organic records.", len(records))
@@ -265,7 +276,10 @@ def get_pubchem_records() -> list[dict]:
             records.append({
                 "name": str(name),
                 "smiles": can_smi,
-                "flash_point": fp_c
+                "flash_point": fp_c,
+                "source_dataset": "PubChem",
+                "source_record_id": f"CID_{cid}",
+                "source_reference": None
             })
 
     log.info("[PubChem] Extracted %d valid organic records.", len(records))
@@ -288,6 +302,20 @@ def main():
     df_raw = pd.DataFrame(all_records)
     total_raw = len(df_raw)
 
+    # Preserve individual records before aggregation
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    df_raw.to_csv(
+        RECORDS_CSV,
+        index=False,
+        encoding="utf-8"
+    )
+
+    log.info(
+        "Pre-aggregation records saved to: %s",
+        RECORDS_CSV
+    )
+
     # Deduplication aggregated by canonical SMILES using median flash point
     df_final = (
         df_raw.groupby("smiles", as_index=False)
@@ -307,15 +335,24 @@ def main():
 
     log.info("=" * 65)
     log.info("PIPELINE COMPLETED SUCCESSFULLY")
-    log.info("Saved output file   : %s", OUTPUT_CSV)
-    log.info("Total compounds (N) : %d", len(df_final))
-    log.info("Duplicates pruned   : %d", total_raw - len(df_final))
-    log.info("Flash Point range   : %.2f deg C to %.2f deg C", df_final["flash_point"].min(), df_final["flash_point"].max())
+    log.info("=" * 65)
+
+    log.info("Saved record-level dataset : %s", RECORDS_CSV)
+    log.info("Saved consolidated dataset : %s", OUTPUT_CSV)
+
+    log.info("Total input records        : %d", total_raw)
+    log.info("Unique compounds           : %d", len(df_final))
+    log.info("Records aggregated         : %d", total_raw - len(df_final))
+
+    log.info("Flash point range          : %.2f deg C to %.2f deg C",
+        df_final["flash_point"].min(),
+        df_final["flash_point"].max()
+    )
+
     log.info("=" * 65)
 
     print("\nDataset Preview (First 5 records):")
     print(df_final.head().to_string(index=False))
-
 
 if __name__ == "__main__":
     main()
