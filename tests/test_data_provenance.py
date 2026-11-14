@@ -1,8 +1,8 @@
-
 from pathlib import Path
 import sys
-
 import pandas as pd
+import json
+import hashlib
 
 # Import the collection module
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -75,6 +75,12 @@ def test_data_provenance(monkeypatch, tmp_path, caplog):
         str(tmp_path / "records.csv")
     )
 
+    monkeypatch.setattr(
+        collector,
+        "MANIFEST_JSON",
+        str(tmp_path / "collection_manifest.json")
+    )
+
     # Enable INFO-level log capture
     caplog.set_level("INFO", logger=collector.log.name)
 
@@ -126,3 +132,61 @@ def test_data_provenance(monkeypatch, tmp_path, caplog):
     ].iloc[0]
 
     assert abs(acetone_fp + 23.0) < 1e-6
+
+
+    # Validate collection manifest
+    manifest_path = tmp_path / "collection_manifest.json"
+
+    assert manifest_path.exists()
+
+    with open(
+        manifest_path, "r", encoding="utf-8"
+    ) as file:
+        manifest = json.load(file)
+
+    assert manifest["schema_version"] == 1
+
+    assert manifest["record_counts"]["total_records"] == 4
+    assert manifest["record_counts"]["unique_compounds"] == 2
+    assert manifest["record_counts"]["aggregated_records"] == 2
+
+    assert manifest["record_counts"]["by_source"] == {
+        "CHEMINFO": 3,
+        "PubChem": 1
+    }
+
+    # Independently verify source checksum
+    expected_raw_hash = hashlib.sha256(
+        raw_csv.read_bytes()
+    ).hexdigest()
+
+    assert (
+        manifest["cheminfo_source"]["sha256"]
+        == expected_raw_hash
+    )
+
+    # Verify consolidated dataset checksum
+    consolidated_path = (
+        tmp_path / "flash_point_database.csv"
+    )
+
+    expected_output_hash = hashlib.sha256(
+        consolidated_path.read_bytes()
+    ).hexdigest()
+
+    assert (
+        manifest["output_files"]["consolidated"]["sha256"]
+        == expected_output_hash
+    )
+
+    # Verify record-level dataset checksum
+    records_path = tmp_path / "records.csv"
+
+    expected_records_hash = hashlib.sha256(
+        records_path.read_bytes()
+    ).hexdigest()
+
+    assert (
+        manifest["output_files"]["record_level"]["sha256"]
+        == expected_records_hash
+    )

@@ -19,6 +19,10 @@ import urllib.request
 import urllib.parse
 import pandas as pd
 from rdkit import Chem
+import hashlib
+import platform
+from datetime import datetime, timezone
+from rdkit import rdBase
 
 # ----------------------------------------------------------------------
 # Global Paths and Configuration
@@ -26,6 +30,7 @@ from rdkit import Chem
 OUTPUT_DIR   = os.path.join("data", "processed")
 OUTPUT_CSV   = os.path.join(OUTPUT_DIR, "flash_point_database.csv")
 RECORDS_CSV  = os.path.join(OUTPUT_DIR, "flash_point_records_pre_aggregation.csv")
+MANIFEST_JSON = os.path.join(OUTPUT_DIR, "collection_manifest.json")
 
 RAW_DATA_DIR = os.path.join("data", "raw")
 RAW_CSV      = os.path.join(RAW_DATA_DIR, "molecule_features_flashpoint.csv")
@@ -289,6 +294,94 @@ def get_pubchem_records() -> list[dict]:
 # ----------------------------------------------------------------------
 # Pipeline Orchestration and Export
 # ----------------------------------------------------------------------
+def calculate_sha256(file_path: str) -> str:
+    """Calculate the SHA-256 checksum of a file."""
+    digest = hashlib.sha256()
+
+    with open(file_path, "rb") as file:
+        for chunk in iter(
+            lambda: file.read(1024 * 1024),
+            b""
+        ):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def write_collection_manifest(
+    df_raw: pd.DataFrame,
+    df_final: pd.DataFrame
+) -> None:
+    """Save collection metadata and file checksums."""
+
+    raw_file_exists = os.path.isfile(RAW_CSV)
+
+    source_counts = {
+        str(source): int(count)
+        for source, count in (
+            df_raw["source_dataset"]
+            .value_counts()
+            .items()
+        )
+    }
+
+    manifest = {
+        "schema_version": 1,
+        "collection_timestamp_utc": (
+            datetime.now(timezone.utc).isoformat()
+        ),
+        "software": {
+            "python": platform.python_version(),
+            "pandas": pd.__version__,
+            "rdkit": rdBase.rdkitVersion
+        },
+        "cheminfo_source": {
+            "url": DATA_URL,
+            "file_path": RAW_CSV,
+            "sha256": (
+                calculate_sha256(RAW_CSV)
+                if raw_file_exists else None
+            )
+        },
+        "pubchem_source": {
+            "api": PUBCHEM_VIEW_BASE,
+            "raw_annotations_archived": False
+        },
+        "record_counts": {
+            "total_records": int(len(df_raw)),
+            "unique_compounds": int(len(df_final)),
+            "aggregated_records": int(
+                len(df_raw) - len(df_final)
+            ),
+            "by_source": source_counts
+        },
+        "output_files": {
+            "record_level": {
+                "path": RECORDS_CSV,
+                "sha256": calculate_sha256(RECORDS_CSV)
+            },
+            "consolidated": {
+                "path": OUTPUT_CSV,
+                "sha256": calculate_sha256(OUTPUT_CSV)
+            }
+        }
+    }
+
+    with open(
+        MANIFEST_JSON, "w", encoding="utf-8"
+    ) as file:
+        json.dump(
+            manifest,
+            file,
+            indent=2,
+            ensure_ascii=False
+        )
+
+    log.info(
+        "Collection manifest saved to: %s",
+        MANIFEST_JSON
+    )
+
+
 def main():
     log.info("=" * 65)
     log.info("STARTING FLASH POINT INGESTION AND DEDUPLICATION PIPELINE")
@@ -332,6 +425,9 @@ def main():
     # CSV Export
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     df_final.to_csv(OUTPUT_CSV, index=False, encoding="utf-8")
+
+    # Record collection metadata after exporting datasets
+    write_collection_manifest(df_raw, df_final)
 
     log.info("=" * 65)
     log.info("PIPELINE COMPLETED SUCCESSFULLY")
